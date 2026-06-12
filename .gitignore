@@ -2,3 +2,5 @@
 !new-export.bat
 !README.md
 !CLAUDE.md
+!import.ps1
+!.gitignore
