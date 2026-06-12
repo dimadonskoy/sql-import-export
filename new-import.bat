@@ -11,8 +11,17 @@ set ScriptRoot=%~dp0
 set exitcode=0
 set failedTrunc=0
 set failedImport=0
+set EnableLogging=false
 
-if not exist "%LogDir%" mkdir "%LogDir%"
+:: Parse command-line arguments
+for %%x in (%*) do (
+    if /i "%%x"=="-nolog" set EnableLogging=false
+    if /i "%%x"=="--no-log" set EnableLogging=false
+    if /i "%%x"=="/nolog" set EnableLogging=false
+    if /i "%%x"=="-log" set EnableLogging=true
+    if /i "%%x"=="--log" set EnableLogging=true
+    if /i "%%x"=="/log" set EnableLogging=true
+)
 
 set Y=%date:~-4,4%
 set M=%date:~-10,2%
@@ -22,13 +31,22 @@ set MI=%time:~3,2%
 set SS=%time:~6,2%
 set TS=%D%%M%%Y%_%HH%%MI%%SS%
 set TS=%TS: =0%
-set LogFile=%LogDir%\import_sql_%TS%.log
 
-type nul > "%LogFile%"
+if "%EnableLogging%"=="true" (
+    if not exist "%LogDir%" mkdir "%LogDir%"
+    set "LogFile=%LogDir%\import_sql_%TS%.log"
+    type nul > "!LogFile!"
+) else (
+    set LogFile=
+)
 
 call :log "=== new-import started ===" "Header"
 call :log "Server: %Server% | Database: %Database%" "Info"
-call :log "Log file: %LogFile%" "Info"
+if defined LogFile (
+    call :log "Log file: %LogFile%" "Info"
+) else (
+    call :log "Log file: Disabled" "Info"
+)
 call :log "" ""
 
 call :log "Waking SQL Server..." "Info"
@@ -97,7 +115,11 @@ call :log "  Tables imported" "Ok"
 if %exitcode% neq 0 (
     call :log "  Import FAILED -- check log." "Error"
     echo.
-    echo Import failed. Check the Logs folder for details.
+    if defined LogFile (
+        echo Import failed. Check the Logs folder for details.
+    ) else (
+        echo Import failed.
+    )
     pause
 ) else (
     call :log "  Import completed successfully." "Ok"
@@ -210,7 +232,9 @@ if "%level%"=="Error" set "col=%ESC%[31m"
 if "%level%"=="Header" set "col=%ESC%[35m"
 if "%level%"=="Detail" set "col=%ESC%[90m"
 echo %col%!now! [!level!] !msg!%ESC%[0m
-echo !now! [!level!] !msg!>>"!LogFile!"
+if defined LogFile (
+    echo !now! [!level!] !msg!>>"!LogFile!"
+)
 goto :eof
 
 REM >>> DATA SECTION <<<

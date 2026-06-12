@@ -51,6 +51,21 @@ Import-only tables that need a prior `TRUNC:` (e.g. those with FK dependencies b
 | `Database` | `POS` | Target database |
 | `Username` / `Password` | `sa` / `sa` | SQL auth credentials |
 | `Force` | `true` (export only) | Overwrite existing `.bcp`/format files |
+| `EnableLogging` | `true` | Enable/disable log file creation & writing |
+
+## Logging Configuration & Flags
+
+By default, logs are written to the `Logs\` folder. You can disable logging by setting `EnableLogging=false` inside the scripts or by running the scripts with one of the following command-line flags:
+
+- `--no-log`
+- `-nolog`
+- `/nolog`
+
+To explicitly force logging to be enabled, you can run with:
+
+- `--log`
+- `-log`
+- `/log`
 
 ## Failure Detection
 
