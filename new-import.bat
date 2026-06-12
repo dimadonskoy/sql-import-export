@@ -137,45 +137,38 @@ set "bcpLog=%TEMP%\bcp_%RANDOM%.log"
 :: This avoids false-positives for: duplicate-key retries (no "0 rows") and empty tables (no errors).
 set bcp_failed=1
 
-:: 1st try: original format
+:: 1. Generate fresh format file from current DB table schema
+bcp "%tbl%" format nul -f"!FreshFmt!" -n -S%Server% -U%Username% -P%Password% >nul 2>&1
+
+:: 2. Compare original mapping with DB schema and build aligned Bridge format
 set "fmt_to_use=%fmt%"
+if exist "!FreshFmt!" (
+    powershell -ExecutionPolicy Bypass -Command "$o=[System.IO.File]::ReadAllText('%fmt%',[System.Text.Encoding]::Default);$ol=$o-split'\r?\n';if($ol.Count-lt2){exit 1};$of=[ordered]@{};for($i=2;$i-lt$ol.Count;$i++){$l=$ol[$i];if([string]::IsNullOrWhiteSpace($l)){continue};$p=$l-split'\s+',8;if($p.Length-lt7){continue};$of[$p[6]]=@{li=$i;sc=$p[5];te=$p[4]}};$n=[System.IO.File]::ReadAllText('!FreshFmt!',[System.Text.Encoding]::Default);$nl=$n-split'\r?\n';$nf=@{};for($i=2;$i-lt$nl.Count;$i++){$l=$nl[$i];if([string]::IsNullOrWhiteSpace($l)){continue};$p=$l-split'\s+',8;if($p.Length-lt7){continue};$nf[$p[6]]=@{sc=$p[5]}};$out=New-Object System.Collections.ArrayList;$null=$out.Add($ol[0]);$null=$out.Add($ol[1]);foreach($cn in $of.Keys){$inf=$of[$cn];$ln=$ol[$inf.li];$osc=$inf.sc;$te=$inf.te;$nsc=if($nf.ContainsKey($cn)){$nf[$cn]['sc']}else{'0'};if($nsc-ne$osc){$ete=[regex]::Escape($te);$ecn=[regex]::Escape($cn);$nln=$ln-replace('('+$ete+'\s+)'+$osc+'(\s+'+$ecn+')'),('${1}'+$nsc+'${2}');if($nln-eq$ln){$nln=$ln-replace('('+$ete+'\s+)'+$osc+'(\s+\S+)$'),('${1}'+$nsc+'${2}')};$null=$out.Add($nln)}else{$null=$out.Add($ln)}};$re=[Environment]::NewLine;($out-join$re)+$re|Out-File -FilePath '!BridgeFmt!' -Encoding Default -NoNewline;if(Test-Path '!BridgeFmt!'){exit 0}else{exit 1}" >nul 2>&1
+    if exist "!BridgeFmt!" set "fmt_to_use=!BridgeFmt!"
+)
+
+:: 3. Import data using aligned format file
 call :run_bcp "!fmt_to_use!"
 call :bcp_check
+
+:: 4. Retry once on failure
 if !bcp_failed! equ 1 (
-    ping 127.0.0.1 -n 2 >nul
-    :: 2nd try: retry with original format
-    set "fmt_to_use=%fmt%"
+    ping 127.0.0.1 -n 3 >nul
     call :run_bcp "!fmt_to_use!"
     call :bcp_check
-    if !bcp_failed! equ 1 (
-        :: 3rd try: regenerate format from current table (temp file, don't overwrite original)
-        bcp "%tbl%" format nul -f"!FreshFmt!" -n -S%Server% -U%Username% -P%Password%
-        set "fmt_to_use=!FreshFmt!"
-        call :run_bcp "!fmt_to_use!"
-        call :bcp_check
-        if !bcp_failed! equ 1 (
-            :: 4th try: bridging format (old data layout + new server column order)
-            powershell -ExecutionPolicy Bypass -Command "$o=[System.IO.File]::ReadAllText('%fmt%',[System.Text.Encoding]::Default);$ol=$o-split'\r?\n';if($ol.Count-lt2){exit 1};$of=[ordered]@{};for($i=2;$i-lt$ol.Count;$i++){$l=$ol[$i];if([string]::IsNullOrWhiteSpace($l)){continue};$p=$l-split'\s+',8;if($p.Length-lt7){continue};$of[$p[6]]=@{li=$i;sc=$p[5];te=$p[4]}};$n=[System.IO.File]::ReadAllText('!FreshFmt!',[System.Text.Encoding]::Default);$nl=$n-split'\r?\n';$nf=@{};for($i=2;$i-lt$nl.Count;$i++){$l=$nl[$i];if([string]::IsNullOrWhiteSpace($l)){continue};$p=$l-split'\s+',8;if($p.Length-lt7){continue};$nf[$p[6]]=@{sc=$p[5]}};$out=New-Object System.Collections.ArrayList;$null=$out.Add($ol[0]);$null=$out.Add($ol[1]);foreach($cn in $of.Keys){$inf=$of[$cn];$ln=$ol[$inf.li];$osc=$inf.sc;$te=$inf.te;$nsc=if($nf.ContainsKey($cn)){$nf[$cn]['sc']}else{$osc};if($nsc-ne$osc){$ete=[regex]::Escape($te);$ecn=[regex]::Escape($cn);$nln=$ln-replace('('+$ete+'\s+)'+$osc+'(\s+'+$ecn+')'),('${1}'+$nsc+'${2}');if($nln-eq$ln){$nln=$ln-replace('('+$ete+'\s+)'+$osc+'(\s+\S+)$'),('${1}'+$nsc+'${2}')};$null=$out.Add($nln)}else{$null=$out.Add($ln)}};$re=[Environment]::NewLine;($out-join$re)+$re|Out-File -FilePath '!BridgeFmt!' -Encoding Default -NoNewline;if(Test-Path '!BridgeFmt!'){exit 0}else{exit 1}"
-            if exist "!BridgeFmt!" (
-                set "fmt_to_use=!BridgeFmt!"
-                call :run_bcp "!fmt_to_use!"
-                call :bcp_check
-            )
-            if !bcp_failed! equ 1 (
-                call :log "  [FAIL] IMPORT %tbl%" "Error"
-                set /a failedImport+=1
-                set exitcode=1
-            ) else (
-                call :log "  [OK] IMPORT %tbl% (bridging format)" "Ok"
-            )
-        ) else (
-            call :log "  [OK] IMPORT %tbl% (fresh format)" "Ok"
-        )
-    ) else (
-        call :log "  [OK] IMPORT %tbl% (retry)" "Ok"
-    )
+)
+
+:: 5. Log import status
+if !bcp_failed! equ 1 (
+    call :log "  [FAIL] IMPORT %tbl%" "Error"
+    set /a failedImport+=1
+    set exitcode=1
 ) else (
-    call :log "  [OK] IMPORT %tbl%" "Ok"
+    if "!fmt_to_use!"=="!BridgeFmt!" (
+        call :log "  [OK] IMPORT %tbl% (aligned mapping)" "Ok"
+    ) else (
+        call :log "  [OK] IMPORT %tbl%" "Ok"
+    )
 )
 
 :: clean up temp files
