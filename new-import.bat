@@ -59,8 +59,6 @@ IMPT:POS.dbo.Pre_Paid_Prefixes2,326.bcp,326map.txt
 IMPT:POS.dbo.GeneralMenus,365.bcp,365map.txt
 IMPT:POS.dbo.ProtoTypeMenus,369.bcp,369map.txt
 IMPT:POS.dbo.PaymentMethodMonitoring,188.bcp,188map.txt
-IMPT:POS.dbo.CoinsRates,19.bcp,19map.txt
-IMPT:POS.dbo.Coins_notes_details,119.bcp,119map.txt
 IMPT:POS.dbo.PraxellTablesCode,189.bcp,189map.txt
 IMPT:POS.dbo.PraxelTbls,195.bcp,195map.txt
 IMPT:POS.dbo.VeriCardTbls,528.bcp,528map.txt
