@@ -17,23 +17,34 @@ Both scripts connect to `.\sqlexpress` (SQL Server Express on localhost), databa
 
 ## Architecture
 
+### Script split: bat vs. PowerShell
+
+- **`new-export.bat`** — pure batch; handles all export logic inline (two phases: BCP out + format file generation).
+- **`new-import.bat`** — thin launcher only; sets environment variables, then delegates all import work to `import.ps1` via `powershell -File`. When modifying import behavior, edit `import.ps1`.
+- **`import.ps1`** — the real import engine. Reads config from environment variables (`$env:Server`, `$env:EnableLogging`, etc.) that `new-import.bat` sets before launching it. Also receives `$BatFile` as a parameter so it can parse the `TRUNC:`/`IMPT:` data section from the calling `.bat` file.
+
 ### Self-referential data sections
-Each `.bat` file contains its own data manifest at the bottom, parsed at runtime using `findstr /b`. The script reads its own lines to discover what to process:
+
+Each `.bat` file contains its own data manifest at the bottom, parsed at runtime using `findstr /b` (in the bat) or `Get-Content` (in `import.ps1`):
 
 - `TRUNC:<table>` — truncate only (no import)
 - `IMPT:<table>,<file>.bcp,<file>map.txt` — truncate + BCP import
 - `EXPT:<table>,<file>.bcp,<file>map.txt` — BCP export
 
 ### Format file alignment (import only)
-`new-import.bat` handles schema drift between the source database (where data was exported) and the target database:
+
+`import.ps1` handles schema drift between the source database (where data was exported) and the target database:
 
 1. Generates a **fresh** format file from the current target table schema.
-2. Runs an inline PowerShell command to diff column sizes between the original `*map.txt` and the fresh file.
+2. Diffs column sizes between the original `*map.txt` and the fresh file (`Align-FormatFile`).
 3. Writes a **bridge** format file with size values updated to match the current schema.
 4. Falls back to the original format if the bridge cannot be generated.
-5. Retries the BCP import once on failure.
+5. Retries the BCP import once on failure (3-second pause before retry).
+
+BCP import uses `-E` (preserve identity values), `-b 10000` (batch size), and `-a 65535` (network packet size). The script also runs a 3-attempt SQL Server wake-up probe (SELECT 1) before beginning truncation.
 
 ### File types
+
 - `.bcp` — binary native-format bulk copy data (not human-readable)
 - `*map.txt` — BCP non-XML format files describing column types, sizes, and names
 
@@ -51,22 +62,21 @@ Import-only tables that need a prior `TRUNC:` (e.g. those with FK dependencies b
 | `Database` | `POS` | Target database |
 | `Username` / `Password` | `sa` / `sa` | SQL auth credentials |
 | `Force` | `true` (export only) | Overwrite existing `.bcp`/format files |
-| `EnableLogging` | `true` | Enable/disable log file creation & writing |
+| `EnableLogging` | `false` | Enable/disable log file creation & writing |
+| `BcpVersion` | *(empty)* | BCP format version compatibility (e.g. `140` for SQL 2017) |
 
-## Logging Configuration & Flags
+## Logging & Version Flags
 
-By default, logs are written to the `Logs\` folder. You can disable logging by setting `EnableLogging=false` inside the scripts or by running the scripts with one of the following command-line flags:
+By default, logs are **disabled**. Override at runtime:
 
-- `--no-log`
-- `-nolog`
-- `/nolog`
+```bat
+new-import.bat --log        :: enable logging
+new-import.bat --no-log     :: disable logging (also: -nolog, /nolog)
+new-export.bat --sql2017    :: export in SQL Server 2017 format (-V 140)
+```
 
-To explicitly force logging to be enabled, you can run with:
-
-- `--log`
-- `-log`
-- `/log`
+All flags are case-insensitive and accept `/`, `-`, or `--` prefix.
 
 ## Failure Detection
 
-BCP exits 0 even on errors. `new-import.bat` detects real failures by scanning BCP stdout for the string `Error = [Microsoft]` in the captured output file, which avoids false positives from empty tables or duplicate-key retries.
+BCP exits 0 even on errors. `import.ps1` detects real failures by scanning BCP stdout for the string `Error = [Microsoft]` in the captured output, which avoids false positives from empty tables or duplicate-key retries.
