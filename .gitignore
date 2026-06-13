@@ -1,5 +1,6 @@
 *.txt
 *.bcp
+*.fmt
 
 !new-import.bat
 !new-export.bat

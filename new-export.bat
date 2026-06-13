@@ -11,7 +11,7 @@ set ScriptRoot=%~dp0
 set exitcode=0
 set Force=true
 set EnableLogging=false
-if not defined BcpVersion set BcpVersion=
+if not defined BcpVersion set BcpVersion=110
 
 :: Parse command-line arguments
 for %%x in (%*) do (
@@ -21,9 +21,9 @@ for %%x in (%*) do (
     if /i "%%x"=="-log" set EnableLogging=true
     if /i "%%x"=="--log" set EnableLogging=true
     if /i "%%x"=="/log" set EnableLogging=true
-    if /i "%%x"=="-sql2017" set BcpVersion=140
-    if /i "%%x"=="--sql2017" set BcpVersion=140
-    if /i "%%x"=="/sql2017" set BcpVersion=140
+    if /i "%%x"=="-sql2017" set BcpVersion=110
+    if /i "%%x"=="--sql2017" set BcpVersion=110
+    if /i "%%x"=="/sql2017" set BcpVersion=110
 )
 
 set BcpOpt=
