@@ -82,6 +82,8 @@ BCP exits with code `0` even when it encounters errors. The import script detect
 | `Password` | `sa` | SQL authentication password |
 | `Force` | `true` | Overwrite existing `.bcp` / format files on export |
 | `EnableLogging` | `false` | Write timestamped log file to `Logs\` |
+| `BcpVersion` | *(empty)* | SQL Server version compatibility format (e.g., `140` for SQL Server 2017) |
+
 
 ### Logging
 
@@ -100,6 +102,20 @@ new-import.bat --log
 new-import.bat -log
 new-import.bat /log
 ```
+
+### Version Compatibility (Export Only)
+
+By default, exports use the native BCP format of the source SQL Server instance. If you need to import the data into an older SQL Server version (such as migrating from SQL Server 2022 to SQL Server 2017), you must export it with version compatibility.
+
+Override `BcpVersion` at runtime with command-line flags:
+
+```bat
+:: Export in SQL Server 2017 format (passes -V 140 to BCP)
+new-export.bat --sql2017
+new-export.bat -sql2017
+new-export.bat /sql2017
+```
+
 
 Log output uses ANSI color codes for level visibility:
 

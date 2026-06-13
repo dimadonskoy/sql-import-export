@@ -11,6 +11,7 @@ set ScriptRoot=%~dp0
 set exitcode=0
 set Force=true
 set EnableLogging=false
+if not defined BcpVersion set BcpVersion=
 
 :: Parse command-line arguments
 for %%x in (%*) do (
@@ -20,7 +21,16 @@ for %%x in (%*) do (
     if /i "%%x"=="-log" set EnableLogging=true
     if /i "%%x"=="--log" set EnableLogging=true
     if /i "%%x"=="/log" set EnableLogging=true
+    if /i "%%x"=="-sql2017" set BcpVersion=140
+    if /i "%%x"=="--sql2017" set BcpVersion=140
+    if /i "%%x"=="/sql2017" set BcpVersion=140
 )
+
+set BcpOpt=
+if defined BcpVersion (
+    set BcpOpt= -V %BcpVersion%
+)
+
 
 set Y=%date:~-4,4%
 set M=%date:~-10,2%
@@ -41,6 +51,9 @@ if "%EnableLogging%"=="true" (
 
 call :log "=== new-export started ===" "Header"
 call :log "Server: %Server% | Database: %Database%" "Info"
+if defined BcpVersion (
+    call :log "BCP Version Compatibility: %BcpVersion% (-V %BcpVersion%)" "Info"
+)
 if defined LogFile (
     call :log "Log file: %LogFile%" "Info"
 ) else (
@@ -105,8 +118,8 @@ exit /b %exitcode%
 :bcp_export
 set tbl=%~1
 set data=%~2
-call :log "  bcp %tbl% out %data%" "Detail"
-bcp "%tbl%" out "%data%" -n -C 1255 -S%Server% -U%Username% -P%Password%
+call :log "  bcp %tbl% out %data%%BcpOpt%" "Detail"
+bcp "%tbl%" out "%data%" -n -C 1255 -S%Server% -U%Username% -P%Password%%BcpOpt%
 if errorlevel 1 (
     call :log "  [FAIL] EXPORT %tbl%" "Error"
     set exitcode=1
@@ -118,8 +131,8 @@ goto :eof
 :bcp_format
 set tbl=%~1
 set fmt=%~2
-call :log "  bcp %tbl% format -> %fmt%" "Detail"
-bcp "%tbl%" format nul -f"%fmt%" -n -S%Server% -U%Username% -P%Password%
+call :log "  bcp %tbl% format -> %fmt%%BcpOpt%" "Detail"
+bcp "%tbl%" format nul -f"%fmt%" -n -S%Server% -U%Username% -P%Password%%BcpOpt%
 if errorlevel 1 (
     call :log "  [FAIL] FORMAT %tbl%" "Error"
     set exitcode=1
