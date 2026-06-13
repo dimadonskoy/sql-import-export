@@ -1,6 +1,10 @@
 *.txt
 *.bcp
 *.fmt
+*.log
+*.zip
+*.gz
+
 
 !new-import.bat
 !new-export.bat
