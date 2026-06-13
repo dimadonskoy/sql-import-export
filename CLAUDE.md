@@ -21,7 +21,7 @@ Both scripts connect to `.\sqlexpress` (SQL Server Express on localhost), databa
 
 - **`new-export.bat`** — pure batch; handles all export logic inline (two phases: BCP out + format file generation).
 - **`new-import.bat`** — thin launcher only; sets environment variables, then delegates all import work to `import.ps1` via `powershell -File`. When modifying import behavior, edit `import.ps1`.
-- **`import.ps1`** — the real import engine. Reads config from environment variables (`$env:Server`, `$env:EnableLogging`, etc.) that `new-import.bat` sets before launching it. Also receives `$BatFile` as a parameter so it can parse the `TRUNC:`/`IMPT:` data section from the calling `.bat` file.
+- **`import.ps1`** — the real import engine. Reads config from environment variables (`$env:Server`, `$env:EnableLogging`, etc.) that `new-import.bat` sets before launching it. Also receives `$BatFile` as a parameter so it can parse the `TRUNC:`/`IMPT:` data section from the calling `.bat` file. Running `import.ps1` directly without `new-import.bat` requires manually setting all `$env:*` variables first.
 
 ### Self-referential data sections
 
@@ -41,12 +41,23 @@ Each `.bat` file contains its own data manifest at the bottom, parsed at runtime
 4. Falls back to the original format if the bridge cannot be generated.
 5. Retries the BCP import once on failure (3-second pause before retry).
 
-BCP import uses `-E` (preserve identity values), `-b 10000` (batch size), and `-a 65535` (network packet size). The script also runs a 3-attempt SQL Server wake-up probe (SELECT 1) before beginning truncation.
+**`Align-FormatFile` algorithm** (lines 56–111 of `import.ps1`): Parses both format files by splitting each data line on whitespace into 8 tokens. Token `[6]` is the column name (used as key), token `[5]` is the byte size. For each column in the original, if the fresh file has a different size, it rewrites that line using a regex replace that targets the exact `terminator + size + columnname` pattern. Columns missing from the fresh file get size `0`; columns added to the target schema are not in the output (BCP only touches declared columns). This means schema drift that removes columns is silently handled; schema drift that adds required columns will cause an import error.
+
+BCP import uses `-E` (preserve identity values), `-b 10000` (batch size), and `-a 65535` (network packet size). The script also runs a 3-attempt SQL Server wake-up probe (`SELECT 1`) before beginning truncation. If all probes fail, the script logs a warning but continues; per-table retries still apply.
+
+**No rollback:** Truncation and import are separate operations. If import fails mid-run, already-truncated tables remain empty.
 
 ### File types
 
 - `.bcp` — binary native-format bulk copy data (not human-readable)
 - `*map.txt` — BCP non-XML format files describing column types, sizes, and names
+
+**Format file line structure** (columns 1–8, whitespace-delimited):
+```
+<ordinal>  <type>    <prefix-len>  <byte-size>  <terminator>  <col-ordinal>  <col-name>  <collation>
+1          SQLCHAR   2             50            ""            1              BankDesc    Hebrew_BIN
+```
+The `Align-FormatFile` function updates `<byte-size>` (column 4) when it changes between export and import schemas.
 
 ## Modifying the Table List
 
@@ -63,7 +74,9 @@ Import-only tables that need a prior `TRUNC:` (e.g. those with FK dependencies b
 | `Username` / `Password` | `sa` / `sa` | SQL auth credentials |
 | `Force` | `true` (export only) | Overwrite existing `.bcp`/format files |
 | `EnableLogging` | `false` | Enable/disable log file creation & writing |
-| `BcpVersion` | *(empty)* | BCP format version compatibility (e.g. `140` for SQL 2017) |
+| `BcpVersion` | `110` | BCP format version compatibility (`-V` flag passed to BCP) |
+
+`BcpVersion` defaults to `110` (SQL Server 2012 compatibility) and is always passed to BCP during export. Set it to a higher value (e.g. `140` for SQL Server 2017 native) only if the target SQL Server requires it.
 
 ## Logging & Version Flags
 
@@ -72,11 +85,13 @@ By default, logs are **disabled**. Override at runtime:
 ```bat
 new-import.bat --log        :: enable logging
 new-import.bat --no-log     :: disable logging (also: -nolog, /nolog)
-new-export.bat --sql2017    :: export in SQL Server 2017 format (-V 140)
+new-export.bat --sql2017    :: export with BcpVersion=110 (-V 110)
 ```
 
 All flags are case-insensitive and accept `/`, `-`, or `--` prefix.
 
 ## Failure Detection
 
-BCP exits 0 even on errors. `import.ps1` detects real failures by scanning BCP stdout for the string `Error = [Microsoft]` in the captured output, which avoids false positives from empty tables or duplicate-key retries.
+BCP exits 0 even on errors. `import.ps1` detects real failures by scanning BCP stdout for the string `Error = [Microsoft]` in the captured output, which avoids false positives from empty tables or duplicate-key retries. The export script (`new-export.bat`) only checks `errorlevel`, so export-side BCP errors may go undetected.
+
+The SQL wake-up probe uses `System.Data.SqlClient.SqlConnection`, which requires .NET Framework. It will fail on .NET 5+ unless the `System.Data.SqlClient` NuGet package is explicitly loaded.
